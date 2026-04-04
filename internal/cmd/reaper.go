@@ -161,43 +161,77 @@ var reaperReapCmd = &cobra.Command{
 	Long: `Close wisps that are past the max-age threshold and whose parent
 molecule is already closed (or missing/orphaned).
 
+When --db is provided, reaps a single database. When omitted, auto-discovers
+all databases on the Dolt server and reaps each one.
+
 Returns the count of reaped wisps. Use --dry-run to preview.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if reaperDB == "" {
-			return fmt.Errorf("--db is required")
-		}
-
 		maxAge, err := time.ParseDuration(reaperMaxAge)
 		if err != nil {
 			return fmt.Errorf("invalid --max-age: %w", err)
 		}
 
-		db, err := reaper.OpenDB(reaperHost, reaperPort, reaperDB, 10*time.Second, 10*time.Second)
-		if err != nil {
-			return fmt.Errorf("connect to %s: %w", reaperDB, err)
-		}
-		defer db.Close()
-
-		if ok, err := reaper.HasReaperSchema(db); err != nil {
-			return fmt.Errorf("check reaper schema on %s: %w", reaperDB, err)
-		} else if !ok {
-			return fmt.Errorf("database %s missing wisps/issues tables (beads schema not initialized on this server)", reaperDB)
+		databases := reaper.DiscoverDatabases(reaperHost, reaperPort)
+		if reaperDB != "" {
+			databases = strings.Split(reaperDB, ",")
 		}
 
-		result, err := reaper.Reap(db, reaperDB, maxAge, reaperDryRun)
-		if err != nil {
-			return fmt.Errorf("reap %s: %w", reaperDB, err)
+		var results []*reaper.ReapResult
+		for _, dbName := range databases {
+			if err := reaper.ValidateDBName(dbName); err != nil {
+				fmt.Fprintf(os.Stderr, "skip invalid db: %s\n", dbName)
+				continue
+			}
+
+			db, err := reaper.OpenDB(reaperHost, reaperPort, dbName, 10*time.Second, 10*time.Second)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: connect error: %v\n", dbName, err)
+				continue
+			}
+
+			if ok, err := reaper.HasReaperSchema(db); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: schema check error: %v\n", dbName, err)
+				db.Close()
+				continue
+			} else if !ok {
+				db.Close()
+				continue
+			}
+
+			result, err := reaper.Reap(db, dbName, maxAge, reaperDryRun)
+			db.Close()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: reap error: %v\n", dbName, err)
+				continue
+			}
+			results = append(results, result)
 		}
 
 		if reaperJSON {
-			fmt.Println(reaper.FormatJSON(result))
+			fmt.Println(reaper.FormatJSON(results))
 		} else {
-			prefix := ""
-			if result.DryRun {
-				prefix = "[DRY RUN] would "
+			var totalReaped, totalOpen int
+			for _, r := range results {
+				prefix := ""
+				if r.DryRun {
+					prefix = "[DRY RUN] would "
+				}
+				fmt.Printf("%s: %sreaped %d wisps, %d open remain\n",
+					r.Database, prefix, r.Reaped, r.OpenRemain)
+				totalReaped += r.Reaped
+				totalOpen += r.OpenRemain
 			}
-			fmt.Printf("%s: %sreaped %d wisps, %d open remain\n",
-				result.Database, prefix, result.Reaped, result.OpenRemain)
+			if len(results) > 1 {
+				prefix := ""
+				if reaperDryRun {
+					prefix = "[DRY RUN] "
+				}
+				fmt.Printf("\n%sReap summary (%d databases): reaped %d wisps, %d open remain\n",
+					prefix, len(results), totalReaped, totalOpen)
+				if totalOpen > 500 {
+					fmt.Fprintf(os.Stderr, "WARNING: %d open wisps exceed alert threshold (500)\n", totalOpen)
+				}
+			}
 		}
 		return nil
 	},
