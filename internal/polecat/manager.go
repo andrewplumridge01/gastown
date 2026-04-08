@@ -153,6 +153,12 @@ func NewManager(r *rig.Rig, g *git.Git, t *tmux.Tmux) *Manager {
 				}
 			}
 		}
+		// Fall back to rig config.json polecat_names if settings has no explicit names
+		if len(names) == 0 {
+			if rigCfg, cfgErr := rig.LoadRigConfig(r.Path); cfgErr == nil && len(rigCfg.PolecatNames) > 0 {
+				names = rigCfg.PolecatNames
+			}
+		}
 		pool = NewNamePoolWithConfig(
 			r.Path,
 			r.Name,
@@ -161,8 +167,13 @@ func NewManager(r *rig.Rig, g *git.Git, t *tmux.Tmux) *Manager {
 			settings.Namepool.MaxBeforeNumbering,
 		)
 	} else {
-		// Use defaults
-		pool = NewNamePool(r.Path, r.Name)
+		// Check rig config.json for polecat_names before falling back to defaults
+		if rigCfg, cfgErr := rig.LoadRigConfig(r.Path); cfgErr == nil && len(rigCfg.PolecatNames) > 0 {
+			pool = NewNamePoolWithConfig(r.Path, r.Name, "", rigCfg.PolecatNames, 0)
+		} else {
+			// Use defaults
+			pool = NewNamePool(r.Path, r.Name)
+		}
 	}
 
 	// Set town root for custom theme resolution in getNames()

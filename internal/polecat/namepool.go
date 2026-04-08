@@ -266,6 +266,10 @@ func (p *NamePool) Save() error {
 // Allocate returns a name from the pool.
 // It prefers names in order from the theme list, and falls back to overflow names
 // when the pool is exhausted.
+//
+// For rig-specific custom name pools (CustomNames set), exhaustion cycles through
+// the pool names with a numeric suffix (e.g., "ponder-2", "ponder-3") rather than
+// using numbered overflow names. This preserves the themed naming even under load.
 func (p *NamePool) Allocate() (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -281,7 +285,26 @@ func (p *NamePool) Allocate() (string, error) {
 		}
 	}
 
-	// Pool exhausted, use overflow naming
+	// Pool exhausted.
+	// For rig-specific custom name pools, cycle through names with a numeric suffix
+	// (e.g., "ponder-2", "ponder-3") to preserve the themed naming style.
+	// For built-in themes, use numbered overflow names (e.g., "51", "52").
+	if len(p.CustomNames) > 0 && len(names) > 0 {
+		// Cycle: overflowIdx is the 0-based overflow entry count.
+		// Derive the pool index and cycle number from it.
+		overflowIdx := p.OverflowNext - (p.MaxSize + 1)
+		if overflowIdx < 0 {
+			overflowIdx = 0
+		}
+		idx := overflowIdx % len(names)
+		cycle := 2 + overflowIdx/len(names)
+		p.OverflowNext++
+		name := fmt.Sprintf("%s-%d", names[idx], cycle)
+		p.InUse[name] = true
+		return name, nil
+	}
+
+	// Built-in theme overflow: use numbered names (51, 52, ...)
 	name := p.formatOverflowName(p.OverflowNext)
 	p.OverflowNext++
 	return name, nil

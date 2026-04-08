@@ -254,6 +254,7 @@ type AddRigOptions struct {
 	SkipDoltCheck   bool     // Skip Dolt server availability check (for tests with mocked beads)
 	CloneFilter     string   // Git clone filter spec (e.g. "blob:none", "tree:0") for partial clones
 	SparseCheckout  []string // Sparse checkout paths (cone mode); empty means no sparse checkout
+	NamePool        []string // Custom polecat name pool for this rig (stored in config.json and settings/config.json)
 }
 
 func resolveLocalRepo(path, gitURL string) (string, string) {
@@ -476,7 +477,10 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 	}
 
 	rigConfig.DefaultBranch = defaultBranch
-	// Re-save config with default branch
+	if len(opts.NamePool) > 0 {
+		rigConfig.PolecatNames = opts.NamePool
+	}
+	// Re-save config with default branch and name pool
 	if err := m.saveRigConfig(rigPath, rigConfig); err != nil {
 		return nil, fmt.Errorf("updating rig config with default branch: %w", err)
 	}
@@ -812,6 +816,22 @@ Use crew for your own workspace. Polecats are for batch work dispatch.
 	rigSettingsPath := filepath.Join(rigPath, constants.DirSettings)
 	if err := os.MkdirAll(rigSettingsPath, 0755); err != nil {
 		return nil, fmt.Errorf("creating settings dir: %w", err)
+	}
+
+	// Seed namepool config when a custom name pool is provided via --name-pool.
+	// This writes settings/config.json so the polecat manager picks it up immediately.
+	if len(opts.NamePool) > 0 {
+		settingsFilePath := filepath.Join(rigSettingsPath, "config.json")
+		rigSettings := config.NewRigSettings()
+		rigSettings.Namepool = &config.NamepoolConfig{
+			Names: opts.NamePool,
+		}
+		if err := config.SaveRigSettings(settingsFilePath, rigSettings); err != nil {
+			// Non-fatal: polecat manager will also read from config.json
+			fmt.Printf("  Warning: Could not seed namepool settings: %v\n", err)
+		} else {
+			fmt.Printf("  ✓ Seeded polecat name pool (%d names)\n", len(opts.NamePool))
+		}
 	}
 
 	// Note: we intentionally do NOT seed local rig settings from

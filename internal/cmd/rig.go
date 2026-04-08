@@ -305,6 +305,7 @@ var (
 	rigAddAdoptForce     bool
 	rigAddFilter         string
 	rigAddSparseCheckout []string
+	rigAddNamePool       []string
 	rigResetHandoff    bool
 	rigResetMail       bool
 	rigResetStale      bool
@@ -368,6 +369,7 @@ func init() {
 	rigAddCmd.Flags().BoolVar(&rigAddAdoptForce, "force", false, "With --adopt, register even if git remote cannot be detected")
 	rigAddCmd.Flags().StringVar(&rigAddFilter, "filter", "", "Partial clone filter (e.g. \"blob:none\", \"tree:0\") to reduce clone size")
 	rigAddCmd.Flags().StringSliceVar(&rigAddSparseCheckout, "sparse-checkout", nil, "Sparse checkout paths (cone mode); comma-separated or repeated")
+	rigAddCmd.Flags().StringSliceVar(&rigAddNamePool, "name-pool", nil, "Custom polecat name pool for this rig (comma-separated or repeated)")
 
 	rigResetCmd.Flags().BoolVar(&rigResetHandoff, "handoff", false, "Clear handoff content")
 	rigResetCmd.Flags().BoolVar(&rigResetMail, "mail", false, "Clear stale mail messages")
@@ -569,6 +571,7 @@ func runRigAdd(cmd *cobra.Command, args []string) error {
 		DefaultBranch:  rigAddBranch,
 		CloneFilter:    rigAddFilter,
 		SparseCheckout: rigAddSparseCheckout,
+		NamePool:       rigAddNamePool,
 	})
 	if err != nil {
 		return fmt.Errorf("adding rig: %w", err)
